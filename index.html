@@ -584,6 +584,72 @@ function hashCode(str) {
 }
 
 
+// ── DICEBEAR AVATAR ──────────────────────────────────────────────────────────
+// Mapa de colores de fondo por posición (hex sin #, para la URL de DiceBear)
+const POS_BG = {
+  POR:'b8860b', DFC:'1a3a6a', CAR:'1a3a6a', LAT:'1a4a2a',
+  MED:'2a3a1a', MCO:'3a2a4a', EXT:'4a2a1a', DEL:'5a1a1a'
+};
+const POS_BG_CSS = {
+  POR:'#2a1e00', DFC:'#0a1e3a', CAR:'#0a1e3a', LAT:'#0a2a14',
+  MED:'#141e0a', MCO:'#1e0a2a', EXT:'#2a1000', DEL:'#2e0808'
+};
+
+function dicebearUrl(seed, size) {
+  // lorelei: ilustración de retrato, limpia y de calidad
+  const s = encodeURIComponent(String(seed));
+  return `https://api.dicebear.com/9.x/lorelei/svg?seed=${s}&size=${size}`;
+}
+
+// Cache de imágenes ya cargadas para no parpadear al re-render
+const _avatarCache = {};
+
+function Avatar({ name, pos, size, seed }) {
+  const sz = size || 44;
+  // Usar seed (player.id) si está disponible, si no el nombre
+  const avatarSeed = seed !== undefined ? seed : name;
+  const url = dicebearUrl(avatarSeed, sz * 2); // x2 para retina
+  const bgCss = POS_BG_CSS[pos] || '#1a1a2a';
+  const cacheKey = String(avatarSeed) + sz;
+
+  const [loaded, setLoaded] = React.useState(!!_avatarCache[cacheKey]);
+  const [error, setError] = React.useState(false);
+
+  // Iniciales como fallback
+  const initials = (name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+
+  return h('div', {
+    style: {
+      width: sz, height: sz, borderRadius: sz * 0.14,
+      background: bgCss, overflow: 'hidden',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0, position: 'relative'
+    }
+  },
+    !error
+      ? h('img', {
+          src: url,
+          width: sz, height: sz,
+          style: { display: 'block', opacity: loaded ? 1 : 0, transition: 'opacity 0.2s' },
+          onLoad: () => { _avatarCache[cacheKey] = true; setLoaded(true); },
+          onError: () => setError(true),
+          alt: name
+        })
+      : null,
+    (!loaded || error)
+      ? h('div', {
+          style: {
+            position: error ? 'relative' : 'absolute',
+            fontFamily: '"Bebas Neue", sans-serif',
+            fontSize: sz * 0.32, color: 'rgba(255,255,255,0.7)',
+            letterSpacing: '1px', userSelect: 'none'
+          }
+        }, initials)
+      : null
+  );
+}
+
+// Mantener generateAvatar para compatibilidad con cualquier llamada residual
 function generateAvatar(name, pos, size=44) {
   const h2 = hashCode(name);
   // Skin tones - realistic range
@@ -752,7 +818,7 @@ function generateAvatar(name, pos, size=44) {
 }
 
 
-function Avatar({ name, pos, size }) {
+function AvatarLegacy({ name, pos, size }) {
   const svg = useMemo(()=>generateAvatar(name,pos,size||44),[name,pos,size]);
   return h('div',{className:'avatar',style:{width:size||44,height:size||44},dangerouslySetInnerHTML:{__html:svg}});
 }
@@ -2939,7 +3005,7 @@ function App() {
   const playerModalEl = selPlayer ? h('div',{className:'modal-overlay',onClick:e=>{if(e.currentTarget===e.target)setSelPlayer(null);}},
     h('div',{className:'modal-box'},
       h('div',{style:{display:'flex',gap:'14px',alignItems:'flex-start',marginBottom:'16px'}},
-        h(Avatar,{name:selPlayer.name,pos:selPlayer.pos,size:60}),
+        h(Avatar,{name:selPlayer.name,pos:selPlayer.pos,size:60,seed:selPlayer.id}),
         h('div',{style:{flex:1}},
           h('div',{style:{fontSize:'16px',fontWeight:600}},selPlayer.name),
           h('div',{style:{fontSize:'12px',color:'var(--text2)',marginTop:'2px'}},`${selPlayer.pos} · ${Math.floor(selPlayer.age)} anos · ${selPlayer.nationality}`),
@@ -3266,7 +3332,7 @@ function App() {
           h('p',{style:{fontSize:'12px',color:'var(--text2)',marginBottom:'10px'}},'Jugadores 1-11 son titulares. Clic para ver perfil completo.'),
           h('table',null,
             h('thead',null,h('tr',null,
-              h('th',null,''),h('th',null,'Jugador'),h('th',null,'Pos'),h('th',null,'Edad'),
+              h('th',{style:{width:'52px'}},''),h('th',null,'Jugador'),h('th',null,'Pos'),h('th',null,'Edad'),
               h('th',null,'Def'),h('th',null,'Jug'),h('th',null,'Anot'),
               h('th',{title:'Partidos jugados esta temporada'},'PJ'),
               h('th',{title:'Goles'},'⚽'),
@@ -3281,23 +3347,29 @@ function App() {
               const formaEmoji=forma>=8?'🔥':forma>=5?'😐':'😞';
               const amarillas=p.yellowCards||0;
               return h('tr',{key:p.id,style:{cursor:'pointer',opacity:isLesionado||isSuspendido?0.6:1},onClick:()=>{setSelPlayer(p);setPlayerTab('basicas');}},
-                h('td',null,h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}},
-                  h(Avatar,{name:p.name,pos:p.pos,size:32}),
-                  i<11&&h('span',{style:{width:'18px',height:'18px',borderRadius:'50%',background:'rgba(240,192,64,0.15)',border:'1px solid rgba(240,192,64,0.3)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:'10px',color:'var(--gold)',fontWeight:700}},i+1)
-                )),
+                h('td',{style:{padding:'4px 4px'}},
+                  h('div',{style:{position:'relative',display:'inline-block'}},
+                    h(Avatar,{name:p.name,pos:p.pos,size:44,seed:p.id}),
+                    i<11&&h('span',{style:{
+                      position:'absolute',bottom:'-2px',right:'-4px',
+                      width:'16px',height:'16px',borderRadius:'50%',
+                      background:'var(--gold)',
+                      display:'inline-flex',alignItems:'center',justifyContent:'center',
+                      fontSize:'9px',color:'#1a1000',fontWeight:700,
+                      border:'1px solid rgba(0,0,0,0.3)',lineHeight:1
+                    }},i+1)
+                  )
+                ),
                 h('td',{style:{fontWeight:500}},p.name),
                 h('td',null,h('span',{className:'badge badge-pos'},p.pos)),
                 h('td',{style:{color:'var(--text2)'}},Math.floor(p.age)),
                 ...[['defensa',p.skills.defensa],['jugadas',p.skills.jugadas],['anotacion',p.skills['anotacion']]].map(([k,v])=>
                   h('td',{key:k},h('div',{className:'sbar'},h('div',{className:'sbar-bg'},h('div',{className:'sbar-fill',style:{width:`${v/20*100}%`,background:skillColor(v)}})),h('span',{style:{fontSize:'11px',color:skillColor(v),minWidth:'14px'}},v)))
                 ),
-                // Stats temporada
                 h('td',{style:{textAlign:'center',fontSize:'12px',color:'var(--text2)'}},(p.stats?.played||0)),
                 h('td',{style:{textAlign:'center',fontSize:'12px',color:(p.stats?.goals||0)>0?'var(--gold)':'var(--text3)',fontWeight:(p.stats?.goals||0)>0?700:400}},(p.stats?.goals||0)||'-'),
                 h('td',{style:{textAlign:'center',fontSize:'12px',color:parseFloat(p.stats?.avgRating||0)>=7?'var(--green)':parseFloat(p.stats?.avgRating||0)>=6?'var(--text2)':'var(--red)'}},p.stats?.avgRating||'-'),
-                // Forma
-                h('td',null,h('span',{style:{fontSize:'16px',title:'Forma: '+forma}},formaEmoji)),
-                // Estado: lesión / suspensión / amarillas
+                h('td',null,h('span',{style:{fontSize:'16px'}},formaEmoji)),
                 h('td',null,
                   isLesionado
                     ?h('span',{style:{fontSize:'11px',color:'var(--red)',background:'rgba(248,81,73,0.1)',padding:'2px 6px',borderRadius:'4px',border:'1px solid rgba(248,81,73,0.3)'}},
@@ -3503,7 +3575,7 @@ function App() {
           h('p',{style:{fontSize:'12px',color:'var(--text2)',marginBottom:'14px'}},'Coste = 26 semanas de salario. Clic en nombre para ver perfil.'),
           market.map(p=>h('div',{key:p.id,className:'transfer-row'},
             h('div',{style:{display:'flex',gap:'10px',alignItems:'center',cursor:'pointer'},onClick:()=>{setSelPlayer(p);setPlayerTab('basicas');setTab('Plantilla');}},
-              h(Avatar,{name:p.name,pos:p.pos,size:40}),
+              h(Avatar,{name:p.name,pos:p.pos,size:40,seed:p.id}),
               h('div',null,
                 h('div',{style:{fontWeight:500}},p.name),
                 h('div',{style:{fontSize:'12px',color:'var(--text2)'}},`${p.pos} · ${Math.floor(p.age)} anos · ${p.nationality}`),
@@ -3627,7 +3699,7 @@ function App() {
               h('table',null,
                 h('thead',null,h('tr',null,h('th',null,''),h('th',null,'Jugador'),h('th',null,'Pos'),h('th',null,'Salario/sem'))),
                 h('tbody',null,[...team.players].sort((a,b)=>b.salary-a.salary).slice(0,8).map(p=>
-                  h('tr',{key:p.id},h('td',null,h(Avatar,{name:p.name,pos:p.pos,size:28})),h('td',null,p.name),h('td',null,h('span',{className:'badge badge-pos'},p.pos)),h('td',{style:{fontWeight:600,color:'var(--gold)'}},fmt(p.salary)))
+                  h('tr',{key:p.id},h('td',null,h(Avatar,{name:p.name,pos:p.pos,size:28,seed:p.id})),h('td',null,p.name),h('td',null,h('span',{className:'badge badge-pos'},p.pos)),h('td',{style:{fontWeight:600,color:'var(--gold)'}},fmt(p.salary)))
                 ))
               )
             ),
